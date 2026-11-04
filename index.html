@@ -64,7 +64,7 @@
         .custom-file-upload {
             border: 2px dashed #38bdf8;
             display: inline-block;
-            padding: 12px 20px;
+            padding: 15px 20px;
             cursor: pointer;
             border-radius: 8px;
             background-color: #0f172a;
@@ -207,12 +207,9 @@
         loadingMsg.style.display = 'block';
 
         try {
-            // ফাইলটিকে লোকাল ব্রাউজার ইউআরএলে রূপান্তর করা (ফ্রি ও ইনস্ট্যান্ট)
             const videoObjectURL = URL.createObjectURL(file);
-
             const { db, collection, addDoc } = window.firebaseDb;
 
-            // ফায়ারস্টোর ডেটাবেজে ভিডিওর নাম ও লোকাল লিংক সংরক্ষণ
             const docRef = await addDoc(collection(db, "videos"), {
                 name: file.name,
                 url: videoObjectURL,
@@ -323,3 +320,4 @@
 
 </body>
 </html>
+
