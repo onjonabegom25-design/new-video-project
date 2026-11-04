@@ -20,7 +20,7 @@
           measurementId: "O-DSMLWYMMFL"
         };
 
-        // ফায়ারবেজ ইনিশিয়ালাইজেশন (স্টোরেজ বাদ দিয়ে শুধু ফায়ারস্টোর ডেটাবেজ)
+        // ফায়ারবেজ ইনিশিয়ালাইজেশন
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
 
@@ -58,41 +58,26 @@
             color: #94a3b8;
             margin-bottom: 20px;
         }
-        .input-group {
-            margin-bottom: 15px;
-            text-align: left;
+        input[type="file"] {
+            display: none;
         }
-        .input-group label {
-            display: block;
-            font-size: 13px;
+        .custom-file-upload {
+            border: 2px dashed #38bdf8;
+            display: inline-block;
+            padding: 12px 20px;
+            cursor: pointer;
+            border-radius: 8px;
+            background-color: #0f172a;
             color: #38bdf8;
-            margin-bottom: 5px;
-        }
-        input[type="text"] {
+            font-weight: bold;
+            margin-bottom: 15px;
+            transition: 0.3s;
             width: 100%;
-            padding: 10px;
-            border-radius: 6px;
-            border: 1px solid #475569;
-            background: #0f172a;
-            color: #fff;
-            font-size: 13px;
             box-sizing: border-box;
-            margin-bottom: 10px;
         }
-        .add-btn {
+        .custom-file-upload:hover {
             background-color: #38bdf8;
             color: #0f172a;
-            border: none;
-            padding: 10px 15px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-weight: bold;
-            width: 100%;
-            transition: 0.3s;
-        }
-        .add-btn:hover {
-            background-color: #0ea5e9;
-            color: #fff;
         }
         video {
             width: 100%;
@@ -104,6 +89,27 @@
             margin-top: 15px;
             display: none;
             text-align: left;
+        }
+        input[type="text"] {
+            width: calc(100% - 70px);
+            padding: 8px;
+            border-radius: 4px;
+            border: 1px solid #475569;
+            background: #0f172a;
+            color: #fff;
+            font-size: 12px;
+        }
+        button.copy-btn {
+            padding: 8px 12px;
+            background-color: #10b981;
+            border: none;
+            color: white;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        button.copy-btn:hover {
+            background-color: #059669;
         }
         .error-msg {
             color: #ef4444;
@@ -150,19 +156,14 @@
 
 <div class="container">
     <h2>আমার ভিডিও শেয়ারিং প্ল্যাটফর্ম</h2>
-    <p>ভিডিওর নাম এবং সরাসরি ভিডিও লিংক (URL) যুক্ত করুন:</p>
+    <p>আপনার ডিভাইস থেকে ভিডিও ফাইল সিলেক্ট করুন:</p>
 
-    <div class="input-group">
-        <label>ভিডিওর নাম:</label>
-        <input type="text" id="videoNameInput" placeholder="যেমন: আমার মজার ভিডিও">
-        
-        <label>ভিডিওর ডাইরেক্ট লিংক (URL):</label>
-        <input type="text" id="videoUrlInput" placeholder="https://example.com/video.mp4">
-    </div>
+    <label class="custom-file-upload">
+        <input type="file" id="videoInput" accept="video/*" onchange="handleVideoUpload(event)">
+        📁 ডিভাইস থেকে ভিডিও চয়ন করুন
+    </label>
 
-    <button class="add-btn" onclick="addNewVideo()">ভিডিও সংরক্ষণ করুন</button>
-
-    <div id="loadingMsg" class="loading">সংরক্ষণ করা হচ্ছে, দয়া করে অপেক্ষা করুন...</div>
+    <div id="loadingMsg" class="loading">ভিডিও প্রসেস করা হচ্ছে, দয়া করে অপেক্ষা করুন...</div>
     <div id="errorMsg" class="error-msg"></div>
 
     <!-- ভিডিও প্লেয়ার -->
@@ -172,8 +173,8 @@
     <div class="link-box" id="linkBox">
         <p style="margin-bottom: 5px; font-size: 12px;">শেয়ার করার লিংক:</p>
         <div style="display: flex; gap: 5px;">
-            <input type="text" id="shareLink" readonly style="margin-bottom:0;">
-            <button onclick="copyLink()" style="background-color: #10b981; border: none; color: white; border-radius: 4px; cursor: pointer; padding: 0 10px; font-weight: bold;">কপি</button>
+            <input type="text" id="shareLink" readonly>
+            <button class="copy-btn" onclick="copyLink()">কপি</button>
         </div>
     </div>
 
@@ -195,40 +196,36 @@
         }, 500);
     });
 
-    async function addNewVideo() {
-        const nameInput = document.getElementById('videoNameInput').value.trim();
-        const urlInput = document.getElementById('videoUrlInput').value.trim();
+    async function handleVideoUpload(event) {
+        const file = event.target.files[0];
         const errorMsg = document.getElementById('errorMsg');
         const loadingMsg = document.getElementById('loadingMsg');
         errorMsg.innerText = "";
 
-        if (!nameInput || !urlInput) {
-            errorMsg.innerText = "দয়া করে ভিডিওর নাম এবং লিংক উভয়ই দিন।";
-            return;
-        }
+        if (!file) return;
 
         loadingMsg.style.display = 'block';
 
         try {
+            // ফাইলটিকে লোকাল ব্রাউজার ইউআরএলে রূপান্তর করা (ফ্রি ও ইনস্ট্যান্ট)
+            const videoObjectURL = URL.createObjectURL(file);
+
             const { db, collection, addDoc } = window.firebaseDb;
 
-            // ফায়ারস্টোর ডেটাবেজে ভিডিওর তথ্য সংরক্ষণ
+            // ফায়ারস্টোর ডেটাবেজে ভিডিওর নাম ও লোকাল লিংক সংরক্ষণ
             const docRef = await addDoc(collection(db, "videos"), {
-                name: nameInput,
-                url: urlInput,
+                name: file.name,
+                url: videoObjectURL,
                 createdAt: Date.now()
             });
 
             loadingMsg.style.display = 'none';
-            document.getElementById('videoNameInput').value = '';
-            document.getElementById('videoUrlInput').value = '';
-
-            playVideo(urlInput, docRef.id);
+            playVideo(videoObjectURL, docRef.id);
             loadVideoList();
 
         } catch (err) {
             loadingMsg.style.display = 'none';
-            errorMsg.innerText = "ত্রুটি: ভিডিও সংরক্ষণ করা সম্ভব হয়নি। আবার চেষ্টা করুন।";
+            errorMsg.innerText = "ত্রুটি: ভিডিও প্রসেস করা সম্ভব হয়নি। আবার চেষ্টা করুন।";
             console.error(err);
         }
     }
