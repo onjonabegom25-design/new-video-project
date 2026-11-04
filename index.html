@@ -4,6 +4,31 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>আমার নিজস্ব ভিডিও স্ট্রিমিং ও শেয়ারিং প্ল্যাটফর্ম</title>
+    <!-- Firebase App (Modular SDK) -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getFirestore, collection, addDoc, getDocs, doc, getDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+        import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
+
+        // আপনার ফায়ারবেজ কনফিগারেশন
+        const firebaseConfig = {
+          apiKey: "AIzaSyAU_4yo0C_MLc4DCzWcCKof9e6maJU01SQ",
+          authDomain: "video-sharing-app-4a882.firebaseapp.com",
+          projectId: "video-sharing-app-4a882",
+          storageBucket: "video-sharing-app-4a882.firebasestorage.app",
+          messagingSenderId: "997374332635",
+          appId: "1:997374332635:web:bd3d1988b64c6d3a6346fe",
+          measurementId: "O-DSMLWYMMFL"
+        };
+
+        // ফায়ারবেজ ইনিশিয়ালাইজেশন
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const storage = getStorage(app);
+
+        window.firebaseDb = { db, storage, collection, addDoc, getDocs, doc, getDoc, deleteDoc, ref, uploadBytes, getDownloadURL, deleteObject };
+    </script>
+
     <style>
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -119,19 +144,26 @@
         .delete-btn:hover {
             background-color: #dc2626;
         }
+        .loading {
+            color: #38bdf8;
+            font-size: 13px;
+            margin-top: 10px;
+            display: none;
+        }
     </style>
 </head>
 <body>
 
 <div class="container">
     <h2>আমার ভিডিও শেয়ারিং প্ল্যাটফর্ম</h2>
-    <p>৫-১০ এমবির ভিডিও সিলেক্ট করুন ও আলাদা লিংক তৈরি করুন:</p>
+    <p>ভিডিও সিলেক্ট করুন এবং ফায়ারবেজ ক্লাউডে আপলোড করুন:</p>
 
     <label class="custom-file-upload">
         <input type="file" id="videoInput" accept="video/*" onchange="handleVideoUpload(event)">
         📁 ভিডিও চয়ন করুন
     </label>
 
+    <div id="loadingMsg" class="loading">ভিডিও আপলোড হচ্ছে, দয়া করে অপেক্ষা করুন...</div>
     <div id="errorMsg" class="error-msg"></div>
 
     <!-- ভিডিও প্লেয়ার -->
@@ -149,63 +181,97 @@
     <!-- সংরক্ষিত ভিডিও তালিকা ও ডিলিট অপশন -->
     <div class="video-list">
         <p style="font-weight: bold; margin-bottom: 10px; color: #38bdf8;">সংরক্ষিত ভিডিওসমূহ:</p>
-        <div id="savedVideosContainer"></div>
+        <div id="savedVideosContainer">লোড হচ্ছে...</div>
     </div>
 </div>
 
 <script>
-    const STORAGE_KEY = 'my_saved_videos_v1';
+    window.addEventListener('DOMContentLoaded', () => {
+        const checkFirebaseReady = setInterval(() => {
+            if (window.firebaseDb) {
+                clearInterval(checkFirebaseReady);
+                loadVideoList();
+                checkUrlParam();
+            }
+        }, 500);
+    });
 
-    window.onload = function() {
-        loadVideoList();
-        checkUrlParam();
-    };
-
-    function handleVideoUpload(event) {
+    async function handleVideoUpload(event) {
         const file = event.target.files[0];
         const errorMsg = document.getElementById('errorMsg');
+        const loadingMsg = document.getElementById('loadingMsg');
         errorMsg.innerText = "";
 
         if (!file) return;
 
-        // সাইজ চেক (প্রায় ১০ এমবি লিমিট)
-        if (file.size > 12 * 1024 * 1024) {
-            errorMsg.innerText = "ত্রুটি: ফাইলটি খুব বড়! দয়া করে ১০ এমবির কম সাইজের ভিডিও দিন।";
-            return;
+        loadingMsg.style.display = 'block';
+
+        try {
+            const { db, storage, collection, addDoc, ref, uploadBytes, getDownloadURL } = window.firebaseDb;
+
+            // ফায়ারবেজ স্টোরেজে ফাইল আপলোড
+            const storageRef = ref(storage, 'videos/' + Date.now() + '_' + file.name);
+            const snapshot = await uploadBytes(storageRef, file);
+            const downloadURL = await getDownloadURL(snapshot.ref);
+
+            // ফায়ারস্টোর ডেটাবেজে ভিডিওর তথ্য সংরক্ষণ
+            const docRef = await addDoc(collection(db, "videos"), {
+                name: file.name,
+                url: downloadURL,
+                createdAt: Date.now()
+            });
+
+            loadingMsg.style.display = 'none';
+            playVideo(downloadURL, docRef.id);
+            loadVideoList();
+
+        } catch (err) {
+            loadingMsg.style.display = 'none';
+            errorMsg.innerText = "ত্রুটি: ভিডিও আপলোড করা সম্ভব হয়নি। আবার চেষ্টা করুন।";
+            console.error(err);
         }
+    }
 
-        const reader = new FileReader();
-        reader.onload = function(e) {
-            const base64Data = e.target.result;
-            const videoId = 'vid_' + Date.now();
+    async function loadVideoList() {
+        const container = document.getElementById('savedVideosContainer');
+        if (!window.firebaseDb) return;
 
-            let videos = getStoredVideos();
-            
-            // লোকাল স্টোরেজ ওভারফ্লো হ্যান্ডেল করা
-            try {
-                videos.push({ id: videoId, data: base64Data, name: file.name });
-                localStorage.setItem(STORAGE_KEY, JSON.stringify(videos));
-                
-                playVideo(base64Data, videoId);
-                loadVideoList();
-            } catch (err) {
-                errorMsg.innerText = "ত্রুটি: ব্রাউজারের মেমোরি ফুল! আগের কিছু ভিডিও ডিলিট করে নিন।";
+        try {
+            const { db, collection, getDocs } = window.firebaseDb;
+            const querySnapshot = await getDocs(collection(db, "videos"));
+            container.innerHTML = "";
+
+            if (querySnapshot.empty) {
+                container.innerHTML = "<p style='font-size: 12px; color: #64748b;'>কোনো ভিডিও সংরক্ষিত নেই।</p>";
+                return;
             }
-        };
-        reader.readAsDataURL(file);
+
+            querySnapshot.forEach((docSnap) => {
+                const vid = docSnap.data();
+                const id = docSnap.id;
+
+                const item = document.createElement('div');
+                item.className = 'video-item';
+                item.innerHTML = `
+                    <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 200px;" title="${vid.name}">${vid.name}</span>
+                    <div>
+                        <button onclick="playSpecific('${vid.url}')" style="background:#38bdf8; border:none; padding:5px 8px; border-radius:4px; cursor:pointer; font-weight:bold; margin-right:4px;">চালান</button>
+                        <button class="delete-btn" onclick="deleteVideo('${id}')">ডিলিট</button>
+                    </div>
+                `;
+                container.appendChild(item);
+            });
+        } catch (err) {
+            container.innerHTML = "<p style='font-size: 12px; color: #ef4444;'>তালিকা লোড করতে সমস্যা হয়েছে।</p>";
+        }
     }
 
-    function getStoredVideos() {
-        let data = localStorage.getItem(STORAGE_KEY);
-        return data ? JSON.parse(data) : [];
-    }
-
-    function playVideo(data, id) {
+    function playVideo(url, id) {
         const player = document.getElementById('videoPlayer');
         const linkBox = document.getElementById('linkBox');
         const shareLink = document.getElementById('shareLink');
 
-        player.src = data;
+        player.src = url;
         player.style.display = 'block';
         player.play();
 
@@ -214,54 +280,55 @@
         linkBox.style.display = 'block';
     }
 
-    function loadVideoList() {
-        const container = document.getElementById('savedVideosContainer');
-        const videos = getStoredVideos();
-        container.innerHTML = "";
-
-        if (videos.length === 0) {
-            container.innerHTML = "<p style='font-size: 12px; color: #64748b;'>কোনো ভিডিও সংরক্ষিত নেই।</p>";
+    async function playSpecific(idOrUrl) {
+        // যদি এটি সরাসরি ফায়ারবেজ স্টোরেজের ইউআরএল হয়
+        if (idOrUrl.startsWith('http')) {
+            playVideo(idOrUrl, 'direct');
             return;
         }
 
-        videos.forEach(vid => {
-            const item = document.createElement('div');
-            item.className = 'video-item';
-            item.innerHTML = `
-                <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 240px;" title="${vid.name}">${vid.name}</span>
-                <div>
-                    <button onclick="playSpecific('${vid.id}')" style="background:#38bdf8; border:none; padding:5px 8px; border-radius:4px; cursor:pointer; font-weight:bold; margin-right:4px;">চালান</button>
-                    <button class="delete-btn" onclick="deleteVideo('${vid.id}')">ডিলিট</button>
-                </div>
-            `;
-            container.appendChild(item);
-        });
-    }
+        // না হলে ফায়ারস্টোর থেকে আইডি দিয়ে ফেচ করা
+        try {
+            const { db, doc, getDoc } = window.firebaseDb;
+            const docRef = doc(db, "videos", idOrUrl);
+            const docSnap = await getDoc(docRef);
 
-    function playSpecific(id) {
-        const videos = getStoredVideos();
-        const found = videos.find(v => v.id === id);
-        if (found) {
-            playVideo(found.data, found.id);
+            if (docSnap.exists()) {
+                playVideo(docSnap.data().url, docSnap.id);
+            }
+        } catch (err) {
+            console.error(err);
         }
     }
 
-    function deleteVideo(id) {
-        let videos = getStoredVideos();
-        videos = videos.filter(v => v.id !== id);
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(videos));
-        loadVideoList();
-        
-        // যদি চলমান ভিডিওটি ডিলিট হয় প্লেয়ার ক্লিয়ার করা
-        document.getElementById('videoPlayer').style.display = 'none';
-        document.getElementById('linkBox').style.display = 'none';
+    async function deleteVideo(id) {
+        if (!confirm('আপনি কি নিশ্চিতভাবে ভিডিওটি ডিলিট করতে চান?')) return;
+
+        try {
+            const { db, doc, deleteDoc } = window.firebaseDb;
+            await deleteDoc(doc(db, "videos", id));
+            loadVideoList();
+            
+            document.getElementById('videoPlayer').style.display = 'none';
+            document.getElementById('linkBox').style.display = 'none';
+        } catch (err) {
+            alert('ডিলিট করতে সমস্যা হয়েছে!');
+        }
     }
 
-    function checkUrlParam() {
+    async function checkUrlParam() {
         const urlParams = new URLSearchParams(window.location.search);
         const vidId = urlParams.get('v');
-        if (vidId) {
-            playSpecific(vidId);
+        if (vidId && window.firebaseDb) {
+            try {
+                const { db, doc, getDoc } = window.firebaseDb;
+                const docSnap = await getDoc(doc(db, "videos", vidId));
+                if (docSnap.exists()) {
+                    playVideo(docSnap.data().url, docSnap.id);
+                }
+            } catch (err) {
+                console.error(err);
+            }
         }
     }
 
@@ -275,3 +342,4 @@
 
 </body>
 </html>
+
