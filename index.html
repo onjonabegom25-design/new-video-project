@@ -163,7 +163,7 @@
         📁 ডিভাইস থেকে ভিডিও চয়ন করুন
     </label>
 
-    <div id="loadingMsg" class="loading">ভিডিও প্রসেস করা হচ্ছে, দয়া করে অপেক্ষা করুন...</div>
+    <div id="loadingMsg" class="loading">ভিডিও প্রসেস ও ডেটাবেজে সেভ হচ্ছে, দয়া করে অপেক্ষা করুন...</div>
     <div id="errorMsg" class="error-msg"></div>
 
     <!-- ভিডিও প্লেয়ার -->
@@ -204,27 +204,39 @@
 
         if (!file) return;
 
+        // ফাইলের সাইজ খুব বড় হলে ফায়ারস্টোরে সমস্যা হতে পারে, তাই ছোট ভিডিও বা ক্লিপের জন্য এটি দারুণ কাজ করবে।
         loadingMsg.style.display = 'block';
 
-        try {
-            const videoObjectURL = URL.createObjectURL(file);
-            const { db, collection, addDoc } = window.firebaseDb;
+        const reader = new FileReader();
+        reader.onload = async function(e) {
+            const base64Video = e.target.result;
 
-            const docRef = await addDoc(collection(db, "videos"), {
-                name: file.name,
-                url: videoObjectURL,
-                createdAt: Date.now()
-            });
+            try {
+                const { db, collection, addDoc } = window.firebaseDb;
 
+                const docRef = await addDoc(collection(db, "videos"), {
+                    name: file.name,
+                    url: base64Video,
+                    createdAt: Date.now()
+                });
+
+                loadingMsg.style.display = 'none';
+                playVideo(base64Video, docRef.id);
+                loadVideoList();
+
+            } catch (err) {
+                loadingMsg.style.display = 'none';
+                errorMsg.innerText = "ত্রুটি: ভিডিও ডেটাবেজে সংরক্ষণ করা সম্ভব হয়নি (ফাইলের সাইজ বড় হতে পারে)।";
+                console.error(err);
+            }
+        };
+
+        reader.onerror = function() {
             loadingMsg.style.display = 'none';
-            playVideo(videoObjectURL, docRef.id);
-            loadVideoList();
+            errorMsg.innerText = "ফাইল পড়তে সমস্যা হয়েছে।";
+        };
 
-        } catch (err) {
-            loadingMsg.style.display = 'none';
-            errorMsg.innerText = "ত্রুটি: ভিডিও প্রসেস করা সম্ভব হয়নি। আবার চেষ্টা করুন।";
-            console.error(err);
-        }
+        reader.readAsDataURL(file);
     }
 
     async function loadVideoList() {
@@ -250,7 +262,7 @@
                 item.innerHTML = `
                     <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 200px;" title="${vid.name}">${vid.name}</span>
                     <div>
-                        <button onclick="playSpecific('${vid.url}')" style="background:#38bdf8; border:none; padding:5px 8px; border-radius:4px; cursor:pointer; font-weight:bold; margin-right:4px;">চালান</button>
+                        <button onclick="playSpecific('${id}')" style="background:#38bdf8; border:none; padding:5px 8px; border-radius:4px; cursor:pointer; font-weight:bold; margin-right:4px;">চালান</button>
                         <button class="delete-btn" onclick="deleteVideo('${id}')">ডিলিট</button>
                     </div>
                 `;
@@ -275,8 +287,18 @@
         linkBox.style.display = 'block';
     }
 
-    async function playSpecific(url) {
-        playVideo(url, 'direct');
+    async function playSpecific(id) {
+        try {
+            const { db, doc, getDoc } = window.firebaseDb;
+            const docRef = doc(db, "videos", id);
+            const docSnap = await getDoc(docRef);
+
+            if (docSnap.exists()) {
+                playVideo(docSnap.data().url, docSnap.id);
+            }
+        } catch (err) {
+            console.error(err);
+        }
     }
 
     async function deleteVideo(id) {
@@ -320,4 +342,3 @@
 
 </body>
 </html>
-
